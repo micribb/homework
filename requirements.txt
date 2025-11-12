@@ -1,0 +1,6 @@
+pandas>=2.2
+numpy>=1.26
+typer[all]>=0.12
+rich>=13.7
+yfinance>=0.2
+pytest>=8.0
