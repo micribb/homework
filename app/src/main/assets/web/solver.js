@@ -122,7 +122,7 @@
       '- Each step has a short title, the math in `work`, and a one- or two-sentence `explanation` of why that step is taken.',
       '- Follow the requested answer format exactly. Round only at the end (state the unrounded value too) and include units. For statistics use precise critical values/p-values, not rounded table values, unless the problem says to use a table.',
       tools
-        ? '- VERIFY WITH CODE: you have a Python sandbox (the code_execution tool) with sympy, numpy, scipy and mpmath. Use it to check every non-trivial computation — solving equations, simplifying, factoring, derivatives and integrals, limits, matrix work, probabilities and critical values (scipy.stats), and the final answer (e.g. substitute it back). If the code disagrees with your hand work, find the error and fix the solution. Present the math by hand as a teacher would; do not paste code into the solution. In `check`, mention what was verified.'
+        ? '- VERIFY WITH CODE: you have a Python code-execution tool (sandbox with sympy, numpy and scipy). Use it to check every non-trivial computation — solving equations, simplifying, factoring, derivatives and integrals, limits, matrix work, probabilities and critical values (scipy.stats), and the final answer (e.g. substitute it back). If the code disagrees with your hand work, find the error and fix the solution. Present the math by hand as a teacher would; do not paste code into the solution. In `check`, mention what was verified.'
         : '- Re-derive critical arithmetic and verify the result (substitute back, estimate, units).',
       '- `answer_entry` is the plain text to type into an online answer box (sqrt(), ^, *, /, inf, pi, interval notation, or the choice letter).',
       '',
@@ -386,7 +386,48 @@
     return { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: b64 } };
   }
 
+  function toTurns(content) {
+    const img = content.find((b) => b.type === 'image');
+    const txt = content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+    return [{ role: 'user', image: img ? img.source.data : null, text: txt }];
+  }
+
+  // Gemini / OpenAI path (see providers.js)
+  async function solveOnceGeneric(opts, content, schema, extraSystem, onProgress) {
+    const progress = (p) => onProgress && onProgress(p);
+    const tools = opts.useCode !== false;
+    const onEvent = (ev) => {
+      if (ev.kind === 'start') progress({ phase: 'reading' });
+      else if (ev.kind === 'thinking') progress({ phase: 'thinking' });
+      else if (ev.kind === 'code') progress({ phase: 'computing' });
+      else if (ev.kind === 'text') progress({ phase: 'writing', delta: ev.delta });
+      else if (ev.kind === 'retry') progress({ phase: 'retry', error: ev.error });
+    };
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const out = await global.Providers.call({
+        provider: opts.provider, apiKey: opts.apiKey, model: opts.model, effort: opts.effort || 'high',
+        system: systemPrompt(opts.detail, tools) + (extraSystem || ''), jsonInstruction: jsonInstruction(schema),
+        turns: toTurns(content), schema, tools, signal: opts.signal, onEvent, maxTokens: 64000,
+      });
+      if (out.stopReason === 'max_tokens') throw new Error('The solution was too long and got cut off. Crop to one problem, or choose "Key steps only" in Settings.');
+      if (out.stopReason === 'refusal') {
+        if (attempt < 2) { progress({ phase: 'retry' }); continue; }
+        throw new Error('The model declined to answer this image. Try cropping to just the problem.');
+      }
+      try {
+        const parsed = parseJson(out.text);
+        if (!parsed || !Array.isArray(parsed.problems)) throw new Error('missing problems');
+        return { result: normalize(parsed), usage: out.usage, usedCode: out.usedCode, effort: opts.effort };
+      } catch (e) {
+        if (attempt < 3) { progress({ phase: 'retry' }); continue; }
+        throw new Error('Could not read the solver\'s answer. Please try again.');
+      }
+    }
+    throw new Error('The solver could not complete this problem. Please try again.');
+  }
+
   async function solveOnce(opts, content, schema, extraSystem, onProgress) {
+    if (opts.provider && opts.provider !== 'anthropic') return solveOnceGeneric(opts, content, schema, extraSystem, onProgress);
     const { apiKey, model, detail, signal } = opts;
     let effort = opts.effort || 'high';
     let tools = opts.useCode !== false;
@@ -542,7 +583,8 @@
         (opts.note && opts.note.trim() ? '\nStudent note: ' + opts.note.trim() : '') },
     ];
     try {
-      const C = await solveOnce(Object.assign({}, opts, { effort: opts.effort === 'max' ? 'max' : 'xhigh' }), adjContent, SCHEMA_ADJ,
+      const adjEffort = (!opts.provider || opts.provider === 'anthropic') ? (opts.effort === 'max' ? 'max' : 'xhigh') : 'max';
+      const C = await solveOnce(Object.assign({}, opts, { effort: adjEffort }), adjContent, SCHEMA_ADJ,
         '\n\nYou are the senior reviewer resolving a disagreement between two solutions. Be rigorous; trust neither solution until you have verified it.', onProgress)
         .catch((e) => {
           if (e && e.status === 400 && /effort/i.test(e.message)) return solveOnce(Object.assign({}, opts, { effort: 'high' }), adjContent, SCHEMA_ADJ, '', onProgress);
@@ -585,12 +627,28 @@
       system: [{ type: 'text', cache_control: { type: 'ephemeral' }, text: [
         'You are StepCam, the patient expert tutor who wrote this solution. Answer the student\'s follow-up question about it like a great live tutor.',
         '- Be clear and direct. Explain the idea behind a step, not just the mechanics. Use a short example when it helps.',
-        '- If the student thinks something is wrong, re-check carefully' + (tools ? ' (use the code_execution tool to verify)' : '') + '. If the original solution had an error, say so plainly and give the corrected work and answer.',
+        '- If the student thinks something is wrong, re-check carefully' + (tools ? ' (use the code-execution tool to verify)' : '') + '. If the original solution had an error, say so plainly and give the corrected work and answer.',
         '- If asked for a similar practice problem, give one with a hidden-until-asked answer (put the answer at the end under "Answer:").',
         '- Format: Markdown with LaTeX ($...$ inline, $$...$$ display, \\begin{aligned} for multi-line work). Write money as \\$. Keep it focused — usually under 250 words unless more is needed.',
       ].join('\n') }],
       messages,
     };
+    if (opts.provider && opts.provider !== 'anthropic') {
+      let gtext = '';
+      const turns = [{ role: 'user', image: entry.image || null, text: ctx[ctx.length - 1].text },
+        { role: 'assistant', text: messages[1].content }];
+      for (const h of opts.history || []) { turns.push({ role: 'user', text: h.q }); turns.push({ role: 'assistant', text: h.a || '(no answer)' }); }
+      turns.push({ role: 'user', text: question });
+      const out = await global.Providers.call({
+        provider: opts.provider, apiKey, model, effort: 'medium', system: body.system[0].text, turns, tools, signal, maxTokens: 16000,
+        onEvent: (ev) => {
+          if (ev.kind === 'text') { gtext += ev.delta; opts.onText && opts.onText(gtext); }
+          else if (ev.kind === 'code') { opts.onStatus && opts.onStatus('Checking with code…'); }
+          else if (ev.kind === 'retry') { opts.onStatus && opts.onStatus('Connection problem — retrying…'); }
+        },
+      });
+      return { text: out.text || gtext, usage: out.usage };
+    }
     if (tools) body.tools = [CODE_TOOL];
     let text = '';
     const onEvent = (ev) => {
@@ -611,7 +669,15 @@
 
   // ------------------------------------------------------------------ public: setup check
   /** Verifies key, model access and credits with a tiny real request. */
-  async function testKey(apiKey, model) {
+  async function testKey(apiKey, model, provider) {
+    if (provider && provider !== 'anthropic') {
+      try {
+        await global.Providers.call({ provider, apiKey, model, effort: 'medium', system: 'Be brief.', turns: [{ role: 'user', text: 'Reply with the single word: ready' }], tools: false, maxTokens: 1024, onEvent: () => {} });
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, status: e.status, message: e.message, code: e.code, kind: e.kind };
+      }
+    }
     const body = {
       model: model || 'claude-opus-5-5',
       max_tokens: 400,

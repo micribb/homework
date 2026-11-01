@@ -282,3 +282,14 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .toggle span b { color: var(--text); font-weight: 600; }
 .toggle { align-items: flex-start; }
 .toggle input { margin-top: 2px; flex: none; }
+
+/* ---------- v3: providers ---------- */
+.free-card { display: flex; flex-direction: column; gap: 8px; padding: 13px 14px; border-radius: 14px; background: var(--accent-soft); border: 1px solid rgba(94,230,184,.35); font-size: 14px; color: var(--text-2); }
+.free-card b { color: var(--text); }
+.free-card .btn { align-self: flex-start; text-decoration: none; display: inline-flex; align-items: center; }
+.free-card span { font-size: 12.5px; color: var(--text-3); }
+.key-provider { font-size: 13px; font-weight: 600; }
+.key-provider:empty { display: none; }
+.key-provider.ok { color: var(--accent); }
+.key-provider.paid { color: #8fc3ff; }
+.key-provider.bad { color: var(--warn); }

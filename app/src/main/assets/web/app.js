@@ -13,6 +13,7 @@
 
   const defaults = {
     apiKey: '', model: 'claude-opus-5-5', effort: 'high', detail: 'full',
+    models: { gemini: 'gemini-3.8-flash', openai: 'gpt-5.6-sol', anthropic: 'claude-opus-5-5' },
     usbRes: '1080', skipReview: false, flip: false, source: NATIVE ? 'usb' : 'phone', phoneDeviceId: '',
     doubleCheck: true, useCode: true,
   };
@@ -36,6 +37,14 @@
   // ---------------------------------------------------------------- storage
   function loadSettings() {
     try { return Object.assign({}, defaults, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); } catch (e) { return Object.assign({}, defaults); }
+  }
+  function providerOf(key) { return (window.Providers && Providers.detect(key)) || null; }
+  function currentProvider() { return providerOf(state.settings.apiKey) || 'gemini'; }
+  function currentModel() {
+    const p = currentProvider();
+    const m = Object.assign({}, defaults.models, state.settings.models || {});
+    if (p === 'anthropic' && state.settings.model && /^claude/.test(state.settings.model) && !(state.settings.models || {}).anthropic) return state.settings.model;
+    return m[p];
   }
   function saveSettings() {
     try { localStorage.setItem(LS_SETTINGS, JSON.stringify(state.settings)); } catch (e) { /* ignore */ }
@@ -357,7 +366,7 @@
     overrides = overrides || {};
     state.lastOverrides = overrides;
     const st = state.settings;
-    if (!st.apiKey) { openSheet('settings'); toast('Add your Anthropic API key first.'); return; }
+    if (!st.apiKey) { openSheet('settings'); toast('Add an API key first (a free Gemini key works).'); return; }
     let imageBase64, thumb;
     if (overrides.entry && overrides.entry.image) {
       imageBase64 = overrides.entry.image;
@@ -391,7 +400,7 @@
 
     try {
       const out = await Solver.solve({
-        apiKey: st.apiKey, model: st.model, effort, detail: st.detail,
+        provider: currentProvider(), apiKey: st.apiKey, model: currentModel(), effort, detail: st.detail,
         imageBase64, mediaType: 'image/jpeg', note, signal: ac.signal,
         useCode: st.useCode !== false, doubleCheck: !!st.doubleCheck,
         onProgress: (p) => {
@@ -401,7 +410,7 @@
         },
       });
       const entry = {
-        id: Date.now().toString(36), ts: Date.now(), model: out.model, effort,
+        id: Date.now().toString(36), ts: Date.now(), model: out.model, provider: currentProvider(), effort,
         usage: out.usage, note, thumb, image: imageBase64.length < 1500000 ? imageBase64 : null, result: out.result,
         verification: out.verification, usedCode: out.usedCode, chat: [],
       };
@@ -435,15 +444,19 @@
   }
 
   function explainError(err) {
-    const s = err.status;
-    if (s === 401) return 'Your API key was rejected. Open Settings and paste a valid key from console.anthropic.com.';
-    if (s === 403) return 'This API key is not allowed to use that model. Try another model in Settings.';
-    if (s === 404) return 'Model not found: ' + state.settings.model + '. Pick another model in Settings.';
+    const s = err.status, p = currentProvider();
+    const where = { gemini: 'aistudio.google.com/apikey', openai: 'platform.openai.com/api-keys', anthropic: 'console.anthropic.com' }[p];
+    const name = { gemini: 'Google Gemini', openai: 'OpenAI', anthropic: 'Anthropic' }[p];
+    if (err.kind === 'daily_quota') return 'Your free Gemini limit for today is used up. It resets at midnight Pacific time. Meanwhile pick a different free model in Settings (e.g. Gemini 3.5 Flash-Lite) or turn off Double-check to use fewer requests.';
+    if (err.kind === 'no_credit') return 'Your ' + name + ' account has no credit left. Add credit on their website, or switch to a free Gemini key (Settings).';
+    if (s === 401 || err.kind === 'auth') return 'Your ' + name + ' API key was rejected. Open Settings and paste a valid key from ' + where + '.';
+    if (s === 403) return 'This ' + name + ' key is not allowed to use ' + currentModel() + '. Pick another model in Settings' + (p === 'gemini' ? ' (the free ones are marked "free").' : '.');
+    if (s === 404) return 'Model "' + currentModel() + '" was not found for this key. Pick another model in Settings.';
     if (s === 429 && err.code === 'enforced_spend_limit_reached') return 'Your Anthropic monthly spend limit is reached. Raise it at console.anthropic.com → Settings → Limits.';
-    if (s === 429) return 'Rate limit reached for your API key, even after retrying. Wait a minute and tap Try again.';
-    if (s === 400 && /credit|billing|balance/i.test(err.message)) return 'Your Anthropic account is out of credits. Add credits at console.anthropic.com → Billing.';
-    if (s === 529 || s === 503 || s === 500 || s === 502) return 'Anthropic\'s servers are busy right now (retried automatically). Try again in a minute.';
-    if (err.type === 'network' || err.type === 'stall' || err instanceof TypeError) return 'The internet connection kept dropping (retried automatically). Check the phone\'s Wi-Fi and tap Try again.';
+    if (s === 429 || err.kind === 'rate_limit') return 'Too many requests for this key right now, even after waiting and retrying.' + (p === 'gemini' ? ' Free Gemini keys allow only a few requests per minute — wait a minute, or turn off Double-check in Settings.' : ' Wait a minute and tap Try again.');
+    if (s === 400 && /credit|billing|balance/i.test(err.message)) return 'Your ' + name + ' account is out of credits. Add credit on their website, or switch to a free Gemini key.';
+    if ([500, 502, 503, 504, 529].includes(s)) return name + '\'s servers are busy right now (retried automatically). Try again in a minute.';
+    if (err.kind === 'network' || err.kind === 'stall' || err.type === 'network' || err.type === 'stall' || err instanceof TypeError) return 'The internet connection kept dropping (retried automatically). Check the phone\'s Wi-Fi and tap Try again.';
     return err.message || String(err);
   }
 
@@ -492,7 +505,7 @@
     }
     const mt = document.createElement('div');
     mt.className = 'sol-meta-text';
-    const modelName = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5' }[entry.model] || entry.model;
+    const modelName = (window.Providers ? Providers.modelLabel(entry.model) : entry.model) + (entry.provider === 'gemini' ? ' (free)' : '');
     mt.innerHTML = '<b>' + R.problems.length + ' problem' + (R.problems.length === 1 ? '' : 's') + ' solved</b><br>' +
       Rich.esc(modelName) + ' · ' + Rich.esc(entry.effort || '') + ' effort' + (entry.usedCode ? ' · math checked with code' : '') + '<br>' +
       new Date(entry.ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -653,7 +666,7 @@
     };
     try {
       const out = await Solver.ask({
-        apiKey: st.apiKey, model: st.model, entry, history: entry.chat || [], question: q, signal: ac.signal,
+        provider: currentProvider(), apiKey: st.apiKey, model: currentModel(), entry, history: entry.chat || [], question: q, signal: ac.signal,
         useCode: st.useCode !== false,
         onText: paint,
         onStatus: (s) => { if (!ansEl.textContent || ansEl.querySelector('.chat-wait')) ansEl.innerHTML = '<span class="chat-wait">' + Rich.esc(s) + '</span>'; },
@@ -699,10 +712,28 @@
   }
   function anySheetOpen() { return ['settings', 'history'].find((n) => !$(n + '-sheet').hidden); }
 
+  function refreshProviderUI() {
+    const key = $('set-key').value.trim();
+    const prov = providerOf(key);
+    const label = $('key-provider');
+    const sel = $('set-model');
+    const showProv = prov || 'gemini';
+    const cat = Providers.CATALOG[showProv];
+    if (!key) { label.className = 'key-provider'; label.textContent = ''; }
+    else if (!prov) { label.className = 'key-provider bad'; label.textContent = 'This doesn\'t look like a Gemini, OpenAI or Anthropic key — check you copied all of it.'; }
+    else { label.className = 'key-provider ' + (cat.free ? 'ok' : 'paid'); label.textContent = '✓ ' + cat.name + ' key' + (cat.free ? ' — free tier, no charge per question' : ' — billed per use'); }
+    $('key-help').textContent = prov ? cat.keyHelp : 'StepCam detects which AI the key is for. It is stored only on this phone.';
+    const models = Object.assign({}, defaults.models, state.settings.models || {});
+    if (showProv === 'anthropic' && state.settings.model && /^claude/.test(state.settings.model) && !(state.settings.models || {}).anthropic) models.anthropic = state.settings.model;
+    sel.innerHTML = cat.models.map((m) => '<option value="' + m.id + '">' + Rich.esc(m.label) + '</option>').join('');
+    sel.value = models[showProv];
+    if (!sel.value && cat.models.length) sel.value = cat.models[0].id;
+  }
+
   function fillSettings() {
     const s = state.settings;
     $('set-key').value = s.apiKey;
-    $('set-model').value = s.model;
+    refreshProviderUI();
     $('set-effort').value = s.effort;
     $('set-detail').value = s.detail;
     $('set-usbres').value = s.usbRes;
@@ -716,7 +747,8 @@
     const s = state.settings;
     const prevRes = s.usbRes;
     s.apiKey = $('set-key').value.trim();
-    s.model = $('set-model').value;
+    const prov = providerOf(s.apiKey);
+    if (prov && $('set-model').value) { s.models = Object.assign({}, defaults.models, s.models || {}); s.models[prov] = $('set-model').value; }
     s.effort = $('set-effort').value;
     s.detail = $('set-detail').value;
     s.usbRes = $('set-usbres').value;
@@ -763,8 +795,12 @@
     if (!st.apiKey) { rows.push(['bad', 'Paste your API key first.']); paint(); return; }
     rows.push(['wait', 'Checking API key, model and credits…']); paint();
     let r;
-    try { r = await Solver.testKey(st.apiKey, st.model); } catch (e) { r = { ok: false, message: 'No internet connection' }; }
-    rows[0] = r.ok ? ['ok', 'API key, model and credits OK'] : ['bad', explainError(Object.assign(new Error(r.message || 'Failed'), { status: r.status, code: r.code, type: r.status ? '' : 'network' }))];
+    const prov = providerOf(st.apiKey);
+    if (!prov) { rows[0] = ['bad', 'That key isn\'t recognised. Paste a Gemini (AIza…), OpenAI (sk-…) or Anthropic (sk-ant-…) key.']; paint(); return; }
+    try { r = await Solver.testKey(st.apiKey, currentModel(), prov); } catch (e) { r = { ok: false, message: 'No internet connection' }; }
+    const pname = Providers.CATALOG[prov].name;
+    rows[0] = r.ok ? ['ok', pname + ' key works · ' + Providers.modelLabel(currentModel()) + (Providers.CATALOG[prov].free ? ' (free)' : '')]
+      : ['bad', explainError(Object.assign(new Error(r.message || 'Failed'), { status: r.status, code: r.code, kind: r.kind || (r.status ? '' : 'network') }))];
     paint();
     if (NATIVE) {
       let ws = {};
@@ -821,6 +857,7 @@
       $('btn-key-show').textContent = k.type === 'password' ? 'Show' : 'Hide';
     };
     $('btn-key-test').onclick = runSetupCheck;
+    $('set-key').addEventListener('input', refreshProviderUI);
     $('chat-form').onsubmit = (e) => { e.preventDefault(); sendChat($('chat-input').value); };
     document.querySelectorAll('[data-ask]').forEach((b) => { b.onclick = () => sendChat(b.dataset.ask); });
 

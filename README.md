@@ -9,12 +9,20 @@ StepCam turns a Moto G Power + a Logitech USB webcam into a standalone problem s
 - **How we know it's right** — the verification.
 - **Ask about this problem** — follow-up questions ("why did you divide by 2?", "give me a similar problem") answered like a live tutor.
 
-The phone does everything on its own over **its own Wi-Fi/data**; the computer is not involved. The AI is Claude (Anthropic's API).
+The phone does everything on its own over **its own Wi-Fi/data**; the computer is not involved.
+
+**Choose your AI by pasting its key** — StepCam detects which one it is:
+
+| Key | Starts with | Cost |
+|---|---|---|
+| **Google Gemini** (recommended to start) | `AIza` | **Free** — no credit card, daily limit. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). |
+| OpenAI / ChatGPT API | `sk-` | Billed per use by OpenAI ([platform.openai.com](https://platform.openai.com/api-keys)). A ChatGPT Plus subscription does *not* include API use. |
+| Anthropic Claude API | `sk-ant-` | Billed per use by Anthropic ([console.anthropic.com](https://console.anthropic.com)). |
 
 ### Accuracy safeguards (on by default)
 
 1. **Method identification first** — the AI classifies the problem (algebra, trig, calculus, statistics, linear algebra, word problems, physics/chemistry …) and picks the method a teacher expects.
-2. **Math verified with code** — every computation is checked in a Python sandbox with SymPy/SciPy (exact algebra, calculus, statistics tables).
+2. **Math verified with code** — every computation is checked in the AI's Python code-execution sandbox (exact algebra, calculus, statistics).
 3. **Double-check** — the problem is solved twice independently. Matching answers are marked **Double-checked ✓**. If they differ, a third, more careful pass re-reads the picture, finds the mistake and shows **Corrected after double-check** with an explanation.
 4. **Sharpest-frame capture** — when you tap the shutter, the app picks the sharpest of the last ~1.5 s of webcam frames and sends it at full resolution.
 
@@ -72,8 +80,8 @@ Tap `StepCam.apk` → if Android blocks it, tap **Settings → Allow from this s
 ## Part 3 — First run (2 minutes)
 
 1. Open **StepCam** → allow **Camera** (Android requires it before any app can use a USB webcam).
-2. **API key:** on the phone, open [console.anthropic.com](https://console.anthropic.com) → sign in → **Billing** (add a few dollars of credit) → **API Keys → Create key** → copy it. Back in StepCam, Settings opens by itself: paste the key.
-3. Tap **Check setup**. You want three green ticks: *API key, model and credits OK* · *USB webcam: … 1920×1080* · *Everything is ready*.
+2. **Free API key:** Settings opens by itself. Tap **Get a free Gemini key** → sign in with your Google account → **Create API key** → copy it → back in StepCam, paste it. It shows *✓ Google Gemini key — free tier*. (An OpenAI or Anthropic key works too, but those charge per question.)
+3. Tap **Check setup**. You want three green ticks: *key works* · *USB webcam: … 1920×1080* · *Everything is ready*.
 4. Close Settings. The live webcam picture shows under **USB webcam** with a green dot.
 
 ## Part 4 — Solving
@@ -89,7 +97,7 @@ Tips: **Answers only** hides the work · **Re-solve (max)** reruns with maximum 
 
 | Setting | Default | What it does |
 |---|---|---|
-| Model | Claude Opus 5.5 | Most accurate. Sonnet 5.5 is faster/cheaper; Haiku 5.5 cheapest. |
+| Model | Depends on key | Gemini: 3.8 Flash (free). OpenAI: GPT-5.6 Sol (or GPT-6 Astra, Terra, Luna). Claude: Opus 5.5 (or Sonnet/Haiku 5.5). |
 | Thinking effort | Thorough | *Maximum* for hard multi-part problems; *Standard* for quick algebra. |
 | Work shown | Every step | *Key steps only* for shorter solutions. |
 | Double-check every answer | On | Two independent solves + tie-break. ~2× cost. |
@@ -97,7 +105,7 @@ Tips: **Answers only** hides the work · **Re-solve (max)** reruns with maximum 
 | USB webcam resolution | 1080p | 720p if the preview stutters, 480p for very old webcams. |
 | Skip crop step | Off | Solve right after the shutter. |
 
-Cost: roughly a few cents to ~25¢ per problem with Opus 5.5 and double-check on (cheaper with Sonnet/Haiku or double-check off), billed to your Anthropic account.
+Cost: **free with a Gemini key** (within Google's free daily limit; Google may use free-tier requests to improve its products). With OpenAI or Anthropic keys, roughly a few cents to ~25¢ per problem with double-check on.
 
 ## Troubleshooting
 
@@ -107,7 +115,8 @@ Cost: roughly a few cents to ~25¢ per problem with Opus 5.5 and double-check on
 | "USB permission denied" | Tap **Connect webcam** → OK. To reset: Settings → Apps → StepCam → Open by default → Clear defaults, then replug. |
 | Picture freezes / "Restarting the webcam…" | The app restarts the webcam itself and steps down to a safer video mode. If it keeps happening: Settings → USB webcam resolution → 720p, and use a hub with PD charging (low battery can starve the webcam of power). |
 | Blurry text / "hard to read" | Move closer, zoom the web page, crop to one problem, reduce glare. |
-| "API key was rejected" / "out of credits" | Paste the key again (starts with `sk-ant-`); add credits in the Anthropic Console. |
+| "API key was rejected" / "out of credits" | Paste the whole key again (Gemini keys start with `AIza`). For OpenAI/Anthropic add credit on their site, or switch to a free Gemini key. |
+| "Free Gemini limit for today is used up" | It resets at midnight Pacific time. Pick another free Gemini model in Settings, or turn off Double-check (uses half the requests). |
 | "Connection kept dropping" | The app already retried several times; check the phone's Wi-Fi and tap **Try again** (your photo is kept). |
 | "Solutions disagreed" (yellow) | Tap **Re-solve (max)**, or crop tighter so the problem is read cleanly. |
 
@@ -121,6 +130,7 @@ app/src/main/java/com/stepcam/app/
                     automatic restart and video-mode fallback
 app/src/main/assets/web/
   index.html, styles.css, app.js   UI: capture, crop, solve, question+answer layout, chat, history, setup check
+  providers.js     Google Gemini (free tier) + OpenAI Responses API adapters, key auto-detection, feature fallbacks
   solver.js        Claude Messages API: streaming, adaptive thinking, code-execution tool (SymPy/SciPy),
                    pause_turn continuation, double-check + adjudication, retries (network/429/5xx/stalls)
   render.js        Markdown + LaTeX → HTML (KaTeX bundled offline, incl. mhchem for chemistry)

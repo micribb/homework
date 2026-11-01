@@ -143,24 +143,26 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head"><h2>Settings</h2><button class="icon-btn" data-close="settings" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <div class="sheet-body">
+      <div class="free-card">
+        <div><b>Free:</b> use a Google Gemini key — no credit card, no charge per question.</div>
+        <a class="btn btn-primary btn-small" id="btn-get-key" href="https://aistudio.google.com/apikey">Get a free Gemini key</a>
+        <span>Sign in with Google → <b>Create API key</b> → copy it → paste it below.</span>
+      </div>
       <label class="field">
-        <span class="field-label">Anthropic API key</span>
+        <span class="field-label">API key <em>(Gemini, ChatGPT/OpenAI or Claude)</em></span>
         <div class="key-row">
-          <input type="password" id="set-key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+          <input type="password" id="set-key" placeholder="Paste your key (AIza…, sk-…, or sk-ant-…)" autocomplete="off" spellcheck="false">
           <button class="chip" id="btn-key-show">Show</button>
         </div>
-        <span class="field-help">Create one at console.anthropic.com → API Keys. It is stored only on this phone.</span>
+        <span class="key-provider" id="key-provider"></span>
+        <span class="field-help" id="key-help">StepCam detects which AI the key is for. It is stored only on this phone.</span>
       </label>
       <div class="key-test-row"><button class="btn btn-secondary btn-small" id="btn-key-test">Check setup</button></div>
       <div class="setup-result" id="key-test-result"></div>
 
       <label class="field">
         <span class="field-label">Model</span>
-        <select id="set-model">
-          <option value="claude-opus-5-5">Claude Opus 5.5 — most accurate</option>
-          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — faster, cheaper</option>
-          <option value="claude-haiku-5-5">Claude Haiku 5.5 — fastest, cheapest</option>
-        </select>
+        <select id="set-model"></select>
       </label>
       <label class="field">
         <span class="field-label">Thinking effort</span>
@@ -197,7 +199,7 @@
         <input type="checkbox" id="set-skip-review">
         <span>Solve immediately after capture (skip crop step)</span>
       </label>
-      <div class="sheet-foot">Each solve sends the captured image to Anthropic's API and is billed to your API key.</div>
+      <div class="sheet-foot">Each solve sends the captured image to the AI company your key belongs to. Gemini's free tier costs nothing (Google may use free-tier requests to improve its products, and there is a daily limit). OpenAI and Anthropic bill your account per use.</div>
     </div>
   </div>
 
@@ -217,6 +219,7 @@
 <script src="expr.js"></script>
 <script src="graph.js"></script>
 <script src="render.js"></script>
+<script src="providers.js"></script>
 <script src="solver.js"></script>
 <script src="app.js"></script>
 </body>
