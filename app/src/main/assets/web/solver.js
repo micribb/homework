@@ -402,6 +402,7 @@
       else if (ev.kind === 'code') progress({ phase: 'computing' });
       else if (ev.kind === 'text') progress({ phase: 'writing', delta: ev.delta });
       else if (ev.kind === 'retry') progress({ phase: 'retry', error: ev.error });
+      else if (ev.kind === 'model') progress({ phase: 'switching', model: ev.model });
     };
     for (let attempt = 1; attempt <= 3; attempt++) {
       const out = await global.Providers.call({
@@ -417,7 +418,7 @@
       try {
         const parsed = parseJson(out.text);
         if (!parsed || !Array.isArray(parsed.problems)) throw new Error('missing problems');
-        return { result: normalize(parsed), usage: out.usage, usedCode: out.usedCode, effort: opts.effort };
+        return { result: normalize(parsed), usage: out.usage, usedCode: out.usedCode, effort: opts.effort, model: out.model || opts.model };
       } catch (e) {
         if (attempt < 3) { progress({ phase: 'retry' }); continue; }
         throw new Error('Could not read the solver\'s answer. Please try again.');
@@ -550,7 +551,7 @@
 
     if (!opts.doubleCheck) {
       const r = await solveOnce(opts, content, SCHEMA, '', onProgress);
-      return { result: r.result, usage: r.usage, model: opts.model, effort: r.effort, usedCode: r.usedCode, verification: { status: 'none', summary: '' } };
+      return { result: r.result, usage: r.usage, model: r.model || opts.model, effort: r.effort, usedCode: r.usedCode, verification: { status: 'none', summary: '' } };
     }
 
     onProgress({ phase: 'reading', dual: true });
@@ -563,13 +564,13 @@
     if (!ok.length) throw settled[0].reason;
     if (ok.length === 1) {
       const r = ok[0];
-      return { result: r.result, usage: r.usage, model: opts.model, effort: r.effort, usedCode: r.usedCode,
+      return { result: r.result, usage: r.usage, model: r.model || opts.model, effort: r.effort, usedCode: r.usedCode,
         verification: { status: 'single', summary: 'The second, independent solve did not finish, so this answer was not cross-checked.' } };
     }
     const [A, B] = ok;
     let usage = addUsage(A.usage, B.usage);
     if (solutionsAgree(A.result, B.result)) {
-      return { result: A.result, usage, model: opts.model, effort: A.effort, usedCode: A.usedCode || B.usedCode,
+      return { result: A.result, usage, model: A.model || opts.model, effort: A.effort, usedCode: A.usedCode || B.usedCode,
         verification: { status: 'confirmed', summary: 'Solved twice independently — both solutions reached the same answer.' } };
     }
 
@@ -592,7 +593,7 @@
         });
       usage = addUsage(usage, C.usage);
       const summary = C.result.verification_summary || 'The two solutions disagreed; a third, careful pass decided the answer.';
-      return { result: C.result, usage, model: opts.model, effort: C.effort, usedCode: true, verification: { status: 'resolved', summary } };
+      return { result: C.result, usage, model: C.model || opts.model, effort: C.effort, usedCode: true, verification: { status: 'resolved', summary } };
     } catch (e) {
       if (isAbort(e)) throw e;
       const other = B.result.problems.map((p, i) => (p.label || ('Problem ' + (i + 1))) + ': ' + (p.answer_entry || p.final_answer)).join('; ');

@@ -360,6 +360,7 @@
     writing: 'Writing the steps…',
     resolving: 'Answers differed — re-checking carefully…',
     retry: 'Connection hiccup — retrying…',
+    switching: 'Free daily limit reached — switching to another free Gemini model…',
   };
 
   async function startSolve(overrides) {
@@ -416,6 +417,9 @@
       };
       state.last = entry;
       persistEntry(entry);
+      if (entry.provider === 'gemini' && out.model && out.model !== currentModel()) {
+        toast('Today\'s free limit for ' + Providers.modelLabel(currentModel()) + ' is used up, so ' + Providers.modelLabel(out.model) + ' (also free) solved this one.', 6000);
+      }
       $('btn-last').disabled = false;
       showSolution(entry);
     } catch (err) {
@@ -447,7 +451,7 @@
     const s = err.status, p = currentProvider();
     const where = { gemini: 'aistudio.google.com/apikey', openai: 'platform.openai.com/api-keys', anthropic: 'console.anthropic.com' }[p];
     const name = { gemini: 'Google Gemini', openai: 'OpenAI', anthropic: 'Anthropic' }[p];
-    if (err.kind === 'daily_quota') return 'Your free Gemini limit for today is used up. It resets at midnight Pacific time. Meanwhile pick a different free model in Settings (e.g. Gemini 3.5 Flash-Lite) or turn off Double-check to use fewer requests.';
+    if (err.kind === 'daily_quota') return 'All the free Gemini models have used up today\'s limit (StepCam already switched between them for you). It resets at midnight Pacific time. Until then, send this problem to a chat app with the buttons below.';
     if (err.kind === 'no_credit') return 'Your ' + name + ' account has no credit left. Add credit on their website, or switch to a free Gemini key (Settings).';
     if (s === 401 || err.kind === 'auth') return 'Your ' + name + ' API key was rejected. Open Settings and paste a valid key from ' + where + '.';
     if (s === 403) return 'This ' + name + ' key is not allowed to use ' + currentModel() + '. Pick another model in Settings' + (p === 'gemini' ? ' (the free ones are marked "free").' : '.');
@@ -472,10 +476,60 @@
     retry.onclick = () => startSolve(state.lastOverrides || {});
     n.appendChild(document.createElement('br'));
     n.appendChild(retry);
+    if (shareImageB64(true)) {
+      const cs = document.createElement('div');
+      cs.className = 'chat-send';
+      cs.innerHTML = '<span>Or send this problem to a chat app (uses that app\'s own free limits):</span><div class="chat-send-row">' +
+        ['chatgpt:ChatGPT', 'gemini:Gemini', 'claude:Claude', 'other:Other…'].map((x) => '<button class="chip" data-chat="' + x.split(':')[0] + '">' + x.split(':')[1] + '</button>').join('') + '</div>';
+      cs.querySelectorAll('[data-chat]').forEach((b) => { b.onclick = () => sendToChat(b.dataset.chat); });
+      n.appendChild(cs);
+    }
     box.appendChild(n);
     $('chat').hidden = true;
     state.viewing = null;
     show('solution');
+  }
+
+  // ---------------------------------------------------------------- send to a chat app
+  function chatPrompt(note) {
+    return [
+      'Solve the math problem in the attached picture like an expert tutor.',
+      '1. Write out the question exactly as shown (all numbers, signs, units and answer choices).',
+      '2. Give the FINAL ANSWER right away, in the exact form the question asks for, and how to type it into an online answer box.',
+      '3. Name the type of problem and the best method to solve it, and why that method works.',
+      '4. Show every step with a short explanation of why it is done.',
+      '5. Check the answer (substitute back, estimate, or verify the arithmetic with code if you can).',
+      'If the picture shows several problems, do each one. Ignore browser menus and buttons in the picture.',
+    ].join('\n') + (note && note.trim() ? '\nNote: ' + note.trim() : '');
+  }
+  function shareImageB64(checkOnly) {
+    if (state.still) return checkOnly ? true : exportImage(2000).toDataURL('image/jpeg', 0.9).split(',')[1];
+    if (state.viewing && state.viewing.image) return state.viewing.image;
+    if (state.lastOverrides && state.lastOverrides.entry && state.lastOverrides.entry.image) return state.lastOverrides.entry.image;
+    return null;
+  }
+  async function sendToChat(target) {
+    const b64 = shareImageB64();
+    if (!b64) { toast('Capture a problem first.'); return; }
+    const text = chatPrompt($('note-input').value);
+    const name = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', other: 'the app' }[target];
+    if (NATIVE && NATIVE.shareToApp) {
+      let r = 'error';
+      try { r = NATIVE.shareToApp(target, b64, text); } catch (e) { /* ignore */ }
+      if (r === 'app') toast('Opening ' + name + ' with the picture and prompt attached — tap Send. (If the prompt is missing, long-press the message box and Paste.)', 6500);
+      else if (r === 'web') toast('The ' + name + ' app isn\'t installed, so its website is opening. The picture is saved in Photos › StepCam and the prompt is copied: attach the picture, paste, send.', 9000);
+      else if (r === 'chooser') toast('Pick the app to send the problem to.');
+      else toast('Couldn\'t share. The prompt is copied — paste it with the picture in any chat app.', 6000);
+      return;
+    }
+    // Plain browser (testing): Web Share, or copy the prompt and open the site.
+    try {
+      const blob = await (await fetch('data:image/jpeg;base64,' + b64)).blob();
+      const file = new File([blob], 'stepcam-problem.jpg', { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text }); return; }
+    } catch (e) { if (e.name === 'AbortError') return; }
+    copyText(text);
+    toast('Prompt copied — attach the picture and paste it into ' + name + '.', 6000);
   }
 
   // ---------------------------------------------------------------- render solution
@@ -860,6 +914,7 @@
     $('set-key').addEventListener('input', refreshProviderUI);
     $('chat-form').onsubmit = (e) => { e.preventDefault(); sendChat($('chat-input').value); };
     document.querySelectorAll('[data-ask]').forEach((b) => { b.onclick = () => sendChat(b.dataset.ask); });
+    document.querySelectorAll('[data-chat]').forEach((b) => { b.onclick = () => sendToChat(b.dataset.chat); });
 
     bindCrop();
     $('btn-crop-clear').onclick = clearCrop;

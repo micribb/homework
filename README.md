@@ -91,6 +91,8 @@ Tap `StepCam.apk` → if Android blocks it, tap **Settings → Allow from this s
 3. Wait ~20–90 s (the screen shows what it's doing: reading → figuring out the method → checking the math with code → writing the steps).
 4. Read the **Question + Answer** at the top, then **How to solve it**, the **steps**, the **graph**, and the check. Ask follow-ups at the bottom.
 
+**Out of free API questions?** On *Check the shot*, tap **ChatGPT**, **Gemini** or **Claude** to send the picture plus a ready-made step-by-step prompt straight into that chat app (or its website if the app isn't installed).
+
 Tips: **Answers only** hides the work · **Re-solve (max)** reruns with maximum effort · the clock icon shows past solutions · **Phone camera** and **Photo** tabs also work · **Flip** rotates the picture if the webcam is upside down.
 
 ## Settings
@@ -116,7 +118,7 @@ Cost: **free with a Gemini key** (within Google's free daily limit; Google may u
 | Picture freezes / "Restarting the webcam…" | The app restarts the webcam itself and steps down to a safer video mode. If it keeps happening: Settings → USB webcam resolution → 720p, and use a hub with PD charging (low battery can starve the webcam of power). |
 | Blurry text / "hard to read" | Move closer, zoom the web page, crop to one problem, reduce glare. |
 | "API key was rejected" / "out of credits" | Paste the whole key again (Gemini keys start with `AIza`). For OpenAI/Anthropic add credit on their site, or switch to a free Gemini key. |
-| "Free Gemini limit for today is used up" | It resets at midnight Pacific time. Pick another free Gemini model in Settings, or turn off Double-check (uses half the requests). |
+| "Free Gemini limit for today is used up" | StepCam already rotates through all four free Gemini models (about 40 Flash + 1,000 Flash-Lite requests a day). It resets at midnight Pacific time. Meanwhile tap **ChatGPT / Gemini / Claude** under the message (or on the *Check the shot* screen) to send the picture and a step-by-step prompt to that chat app — it uses the app's own free limits. |
 | "Connection kept dropping" | The app already retried several times; check the phone's Wi-Fi and tap **Try again** (your photo is kept). |
 | "Solutions disagreed" (yellow) | Tap **Re-solve (max)**, or crop tighter so the problem is read cleanly. |
 

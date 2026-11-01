@@ -12,8 +12,8 @@ android {
         minSdk = 26
         // 33 keeps the USB-permission broadcast behaviour the UVC library expects.
         targetSdk = 33
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // A fixed key (committed on purpose) so every new build installs over the previous one.

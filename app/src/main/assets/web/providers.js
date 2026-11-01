@@ -328,10 +328,55 @@
     { key: 'structured', test: /text\.format|json_schema|schema|strict/i },
   ];
 
+  // ------------------------------------------------------------------ free Gemini quota juggling
+  // Each free Gemini model has its own daily quota, so when one runs out we move to the next.
+  const GEMINI_FREE_CHAIN = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+  const EXHAUST_KEY = 'stepcam.geminiExhausted.v1';
+  function pacificDay() {
+    try { return new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' }); } catch (e) { return new Date().toDateString(); }
+  }
+  function exhaustedMap() {
+    try { return JSON.parse(localStorage.getItem(EXHAUST_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function markExhausted(model) {
+    const m = exhaustedMap();
+    m[model] = pacificDay();
+    try { localStorage.setItem(EXHAUST_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ }
+  }
+  function isExhausted(model) { return exhaustedMap()[model] === pacificDay(); }
+  function geminiChain(model) {
+    if (!GEMINI_FREE_CHAIN.includes(model)) return [model]; // paid model: no switching
+    const start = GEMINI_FREE_CHAIN.indexOf(model);
+    // chosen model first, then the remaining free models in quality order
+    return [model].concat(GEMINI_FREE_CHAIN.filter((m, i) => m !== model && (i > start || i < start)));
+  }
+
   // ------------------------------------------------------------------ public entry point
   const featureMemo = {}; // remembers which features a model rejected, for this app session
 
   async function call(o) {
+    const isG = o.provider === 'gemini';
+    if (!isG) return callModel(o);
+    const chain = geminiChain(o.model);
+    const live = chain.filter((m) => !isExhausted(m));
+    const order = live.length ? live : chain; // all marked used up: try anyway (limits may have reset)
+    let lastErr = null;
+    for (const model of order) {
+      if (model !== o.model && o.onEvent) o.onEvent({ kind: 'model', model });
+      try {
+        const out = await callModel(Object.assign({}, o, { model }));
+        out.model = model;
+        return out;
+      } catch (e) {
+        if (e.kind !== 'daily_quota') throw e;
+        markExhausted(model);
+        lastErr = e;
+      }
+    }
+    throw lastErr;
+  }
+
+  async function callModel(o) {
     const isG = o.provider === 'gemini';
     const list = isG ? GEMINI_FEATURES : OPENAI_FEATURES;
     const memoKey = o.provider + ':' + o.model;
@@ -339,7 +384,9 @@
     const onEvent = o.onEvent || (() => {});
     for (let attempt = 0; attempt < 8; attempt++) {
       try {
-        return await withRetries(() => (isG ? callGemini : callOpenAI)(Object.assign({}, o, { onEvent }), feat), o.signal, onEvent);
+        const out = await withRetries(() => (isG ? callGemini : callOpenAI)(Object.assign({}, o, { onEvent }), feat), o.signal, onEvent);
+        out.model = o.model;
+        return out;
       } catch (e) {
         if (isAbort(e) || e.status !== 400 || e.kind === 'auth') throw e;
         // Drop the feature the API complained about (or the riskiest one) and retry.
@@ -355,5 +402,5 @@
     throw new ProviderError(0, 'The request kept failing. Please try again.');
   }
 
-  global.Providers = { call, detect, CATALOG, modelLabel, ProviderError, _toTypeArrays: toTypeArrays };
+  global.Providers = { call, detect, CATALOG, modelLabel, ProviderError, isExhausted, GEMINI_FREE_CHAIN, _toTypeArrays: toTypeArrays };
 })(window);
