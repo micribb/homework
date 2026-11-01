@@ -19,7 +19,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      # The GitHub runner already has the Android SDK; just make sure its licenses are accepted.
+      - name: Accept Android SDK licenses
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          echo "Using $SDKM"
+          yes | "$SDKM" --licenses > /dev/null || true
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - uses: gradle/actions/setup-gradle@v4
         with:
