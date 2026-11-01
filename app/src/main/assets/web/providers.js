@@ -56,6 +56,7 @@
   function detect(key) {
     const k = String(key || '').trim();
     if (/^AIza[0-9A-Za-z_\-]{20,}$/.test(k)) return 'gemini';
+    if (/^AQ\.[0-9A-Za-z_\-.]{20,}$/.test(k)) return 'gemini'; // newer Google key format
     if (/^sk-ant-/.test(k)) return 'anthropic';
     if (/^sk-[A-Za-z0-9_\-]{10,}/.test(k)) return 'openai';
     return null;

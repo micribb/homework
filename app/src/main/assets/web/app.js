@@ -38,8 +38,41 @@
   function loadSettings() {
     try { return Object.assign({}, defaults, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); } catch (e) { return Object.assign({}, defaults); }
   }
-  function providerOf(key) { return (window.Providers && Providers.detect(key)) || null; }
+  // Clean up whatever was pasted: spaces, line breaks, invisible characters, quotes, "API_KEY=" prefixes.
+  function cleanKey(raw) {
+    let k = String(raw || '').replace(/[\u200B-\u200D\u2060\uFEFF\u00A0\s]/g, '').replace(/^['"`]+|['"`]+$/g, '');
+    k = k.replace(/^[A-Za-z_]*key[A-Za-z_]*[=:]/i, '');
+    const m = /AIza[0-9A-Za-z_\-]{30,45}/.exec(k) || /sk-ant-[0-9A-Za-z_\-]{20,}/.exec(k) || /sk-[0-9A-Za-z_\-]{20,}/.exec(k);
+    return m ? m[0] : k;
+  }
+  function providerOf(key) {
+    const k = cleanKey(key);
+    const d = window.Providers && Providers.detect(k);
+    if (d) return d;
+    const kp = state.settings.keyProvider;
+    return kp && k && kp.tail === k.slice(-8) ? kp.provider : null;
+  }
   function currentProvider() { return providerOf(state.settings.apiKey) || 'gemini'; }
+  // For keys in a format we don't know: find out which AI accepts it (Gemini first — it's free).
+  async function probeKey(key) {
+    const k = cleanKey(key);
+    if (!k || (window.Providers && Providers.detect(k))) return { provider: providerOf(k) };
+    let last = null;
+    for (const prov of ['gemini', 'openai', 'anthropic']) {
+      const model = Object.assign({}, defaults.models, state.settings.models || {})[prov];
+      let r;
+      try { r = await Solver.testKey(k, model, prov); } catch (e) { r = { ok: false, kind: 'network' }; }
+      const accepted = r.ok || (r.status !== 401 && r.status !== 403 && r.kind !== 'auth' && !(r.status === 400 && /key/i.test(r.message || '')) && r.kind !== 'network');
+      if (accepted) {
+        state.settings.keyProvider = { tail: k.slice(-8), provider: prov };
+        saveSettings();
+        return { provider: prov, result: r };
+      }
+      last = r;
+      if (r.kind === 'network') return { provider: null, result: r };
+    }
+    return { provider: null, result: last };
+  }
   function currentModel() {
     const p = currentProvider();
     const m = Object.assign({}, defaults.models, state.settings.models || {});
@@ -368,6 +401,11 @@
     state.lastOverrides = overrides;
     const st = state.settings;
     if (!st.apiKey) { openSheet('settings'); toast('Add an API key first (a free Gemini key works).'); return; }
+    if (!providerOf(st.apiKey)) {
+      toast('Checking which AI your key is for…');
+      const pr = await probeKey(st.apiKey);
+      if (!pr.provider) { showError(Object.assign(new Error('That API key was rejected by Gemini, OpenAI and Anthropic. Copy it again from aistudio.google.com/apikey (tap the copy icon next to the key) and paste it in Settings.'), { kind: pr.result && pr.result.kind === 'network' ? 'network' : '' })); return; }
+    }
     let imageBase64, thumb;
     if (overrides.entry && overrides.entry.image) {
       imageBase64 = overrides.entry.image;
@@ -767,14 +805,14 @@
   function anySheetOpen() { return ['settings', 'history'].find((n) => !$(n + '-sheet').hidden); }
 
   function refreshProviderUI() {
-    const key = $('set-key').value.trim();
+    const key = cleanKey($('set-key').value);
     const prov = providerOf(key);
     const label = $('key-provider');
     const sel = $('set-model');
     const showProv = prov || 'gemini';
     const cat = Providers.CATALOG[showProv];
     if (!key) { label.className = 'key-provider'; label.textContent = ''; }
-    else if (!prov) { label.className = 'key-provider bad'; label.textContent = 'This doesn\'t look like a Gemini, OpenAI or Anthropic key — check you copied all of it.'; }
+    else if (!prov) { label.className = 'key-provider paid'; label.textContent = 'Key saved. Tap Check setup — StepCam will find out which AI it belongs to.'; }
     else { label.className = 'key-provider ' + (cat.free ? 'ok' : 'paid'); label.textContent = '✓ ' + cat.name + ' key' + (cat.free ? ' — free tier, no charge per question' : ' — billed per use'); }
     $('key-help').textContent = prov ? cat.keyHelp : 'StepCam detects which AI the key is for. It is stored only on this phone.';
     const models = Object.assign({}, defaults.models, state.settings.models || {});
@@ -800,7 +838,7 @@
   function readSettings() {
     const s = state.settings;
     const prevRes = s.usbRes;
-    s.apiKey = $('set-key').value.trim();
+    s.apiKey = cleanKey($('set-key').value);
     const prov = providerOf(s.apiKey);
     if (prov && $('set-model').value) { s.models = Object.assign({}, defaults.models, s.models || {}); s.models[prov] = $('set-model').value; }
     s.effort = $('set-effort').value;
@@ -849,8 +887,17 @@
     if (!st.apiKey) { rows.push(['bad', 'Paste your API key first.']); paint(); return; }
     rows.push(['wait', 'Checking API key, model and credits…']); paint();
     let r;
-    const prov = providerOf(st.apiKey);
-    if (!prov) { rows[0] = ['bad', 'That key isn\'t recognised. Paste a Gemini (AIza…), OpenAI (sk-…) or Anthropic (sk-ant-…) key.']; paint(); return; }
+    let prov = providerOf(st.apiKey);
+    if (!prov) {
+      rows[0] = ['wait', 'Finding out which AI this key belongs to…']; paint();
+      const pr = await probeKey(st.apiKey);
+      prov = pr.provider;
+      if (!prov) {
+        rows[0] = ['bad', pr.result && pr.result.kind === 'network' ? 'No internet connection — check the phone\'s Wi-Fi.' : 'Gemini, OpenAI and Anthropic all rejected this key. On aistudio.google.com/apikey tap the copy icon next to your key, then paste it here again.'];
+        paint(); return;
+      }
+      refreshProviderUI();
+    }
     try { r = await Solver.testKey(st.apiKey, currentModel(), prov); } catch (e) { r = { ok: false, message: 'No internet connection' }; }
     const pname = Providers.CATALOG[prov].name;
     rows[0] = r.ok ? ['ok', pname + ' key works · ' + Providers.modelLabel(currentModel()) + (Providers.CATALOG[prov].free ? ' (free)' : '')]
