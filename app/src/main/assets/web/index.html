@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1017">
+<title>StepCam</title>
+<link rel="stylesheet" href="lib/katex/katex.min.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ CAPTURE SCREEN ============ -->
+  <section id="screen-capture" class="screen active">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>StepCam</div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btn-history" aria-label="History">
+          <svg viewBox="0 0 24 24"><path d="M12 7v5l3 2M3.5 12a8.5 8.5 0 1 0 2.5-6M3 4v4h4"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.4.9a7.5 7.5 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5A7.5 7.5 0 0 0 7 6.5l-2.4-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.4-.9a7.5 7.5 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.5 7.5 0 0 0 2.6-1.5l2.4.9 2-3.4Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="source-row" role="tablist" aria-label="Camera source">
+      <button class="seg" data-source="usb" id="seg-usb" role="tab">USB webcam</button>
+      <button class="seg" data-source="phone" id="seg-phone" role="tab">Phone camera</button>
+      <label class="seg seg-file" id="seg-photo">Photo<input type="file" id="file-input" accept="image/*" hidden></label>
+    </div>
+
+    <div class="viewport" id="viewport">
+      <img id="usb-feed" alt="" hidden>
+      <video id="phone-feed" playsinline muted autoplay hidden></video>
+      <div class="frame-guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div class="feed-status" id="feed-status"><span class="dot"></span><span id="feed-status-text">Starting…</span></div>
+      <div class="feed-empty" id="feed-empty" hidden>
+        <div class="feed-empty-title" id="feed-empty-title">No camera</div>
+        <div class="feed-empty-body" id="feed-empty-body"></div>
+        <button class="btn btn-secondary" id="btn-connect" hidden>Connect webcam</button>
+      </div>
+      <button class="cam-switch" id="btn-cam-switch" hidden aria-label="Switch camera">
+        <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9.5 13.5a2.5 2.5 0 0 1 4.6-1.4M14.5 13.5a2.5 2.5 0 0 1-4.6 1.4M14 10.5v2h-2M10 16.5v-2h2"/></svg>
+      </button>
+    </div>
+
+    <ol class="tips">
+      <li>Point the webcam at the screen so the problem fills most of the frame.</li>
+      <li>Angle it slightly to avoid glare, then tap the shutter.</li>
+      <li>Drag to crop just the problem, add a note if needed, and tap <b>Solve</b>.</li>
+    </ol>
+
+    <div class="shutter-row">
+      <button class="side-btn" id="btn-rotate" aria-label="Flip image 180°">
+        <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg>
+        <span>Flip</span>
+      </button>
+      <button class="shutter" id="btn-shutter" aria-label="Capture problem"><span></span></button>
+      <button class="side-btn" id="btn-last" aria-label="Last solution" disabled>
+        <svg viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5z"/><path d="M8 12h8M8 16h5"/></svg>
+        <span>Last</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============ REVIEW / CROP SCREEN ============ -->
+  <section id="screen-review" class="screen">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-review-back" aria-label="Back">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="topbar-title">Check the shot</div>
+      <span class="topbar-spacer"></span>
+    </header>
+    <div class="review-wrap">
+      <div class="crop-stage" id="crop-stage">
+        <canvas id="review-canvas"></canvas>
+        <div class="crop-box" id="crop-box" hidden></div>
+      </div>
+      <div class="review-tools">
+        <span class="review-tip" id="crop-tip">Drag over the problem to crop (optional)</span>
+        <button class="chip" id="btn-crop-clear" hidden>Clear crop</button>
+      </div>
+      <label class="field">
+        <span class="field-label">Note for the solver <em>(optional)</em></span>
+        <input type="text" id="note-input" placeholder="e.g. only #4 · answer in degrees · round to 2 decimals" autocomplete="off">
+      </label>
+      <div class="review-actions">
+        <button class="btn btn-secondary" id="btn-retake">Retake</button>
+        <button class="btn btn-primary" id="btn-solve">Solve with steps</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SOLUTION SCREEN ============ -->
+  <section id="screen-solution" class="screen">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-solution-back" aria-label="Back to camera">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="topbar-title">Solution</div>
+      <button class="chip" id="btn-answers-only">Answers only</button>
+    </header>
+    <div class="solution-scroll" id="solution-scroll">
+      <div id="solution"></div>
+      <section class="chat" id="chat" hidden>
+        <div class="section-label">Ask about this problem</div>
+        <div class="chat-suggest">
+          <button class="chip" data-ask="Explain the hardest step in simpler words.">Explain more simply</button>
+          <button class="chip" data-ask="Why does this method work here, and how do I recognize this type of problem next time?">Why this method?</button>
+          <button class="chip" data-ask="Give me a similar practice problem.">Similar problem</button>
+          <button class="chip" data-ask="Are you sure? Double-check the answer carefully.">Double-check it</button>
+        </div>
+        <div id="chat-list"></div>
+        <form class="chat-form" id="chat-form" autocomplete="off">
+          <input type="text" id="chat-input" placeholder="e.g. Why did you divide by 2 in step 3?" enterkeyhint="send">
+          <button class="btn btn-primary btn-small" id="chat-send" type="submit">Ask</button>
+        </form>
+      </section>
+    </div>
+    <div class="solution-footer">
+      <button class="btn btn-secondary" id="btn-resolve">Re-solve (max)</button>
+      <button class="btn btn-primary" id="btn-new">New problem</button>
+    </div>
+  </section>
+
+  <!-- ============ WORKING OVERLAY ============ -->
+  <div class="overlay" id="working" hidden>
+    <div class="working-card">
+      <div class="orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="working-phase" id="working-phase">Reading the problem…</div>
+      <div class="working-meta" id="working-meta">0s</div>
+      <div class="working-bar"><i id="working-bar"></i></div>
+      <button class="btn btn-ghost" id="btn-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ SETTINGS SHEET ============ -->
+  <div class="sheet-backdrop" id="settings-backdrop" hidden></div>
+  <div class="sheet" id="settings-sheet" hidden role="dialog" aria-label="Settings">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head"><h2>Settings</h2><button class="icon-btn" data-close="settings" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="sheet-body">
+      <label class="field">
+        <span class="field-label">Anthropic API key</span>
+        <div class="key-row">
+          <input type="password" id="set-key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+          <button class="chip" id="btn-key-show">Show</button>
+        </div>
+        <span class="field-help">Create one at console.anthropic.com → API Keys. It is stored only on this phone.</span>
+      </label>
+      <div class="key-test-row"><button class="btn btn-secondary btn-small" id="btn-key-test">Check setup</button></div>
+      <div class="setup-result" id="key-test-result"></div>
+
+      <label class="field">
+        <span class="field-label">Model</span>
+        <select id="set-model">
+          <option value="claude-opus-5-5">Claude Opus 5.5 — most accurate</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — faster, cheaper</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 — fastest, cheapest</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Thinking effort</span>
+        <select id="set-effort">
+          <option value="medium">Standard</option>
+          <option value="high">Thorough (recommended)</option>
+          <option value="max">Maximum (slowest)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Work shown</span>
+        <select id="set-detail">
+          <option value="full">Every step, explained</option>
+          <option value="key">Key steps only</option>
+        </select>
+      </label>
+      <label class="field" id="field-usbres">
+        <span class="field-label">USB webcam resolution</span>
+        <select id="set-usbres">
+          <option value="1080">1080p (sharpest text)</option>
+          <option value="720">720p (smoother)</option>
+          <option value="480">480p (older webcams)</option>
+        </select>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="set-double">
+        <span><b>Double-check every answer</b> — solves twice independently and compares; if they differ, a third careful pass decides. More accurate, about 2× the cost.</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="set-code">
+        <span><b>Verify math with code</b> — the AI checks its algebra, calculus and statistics in a Python (SymPy/SciPy) sandbox.</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="set-skip-review">
+        <span>Solve immediately after capture (skip crop step)</span>
+      </label>
+      <div class="sheet-foot">Each solve sends the captured image to Anthropic's API and is billed to your API key.</div>
+    </div>
+  </div>
+
+  <!-- ============ HISTORY SHEET ============ -->
+  <div class="sheet-backdrop" id="history-backdrop" hidden></div>
+  <div class="sheet" id="history-sheet" hidden role="dialog" aria-label="History">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head"><h2>Recent solutions</h2><button class="icon-btn" data-close="history" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="sheet-body" id="history-list"></div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+</div>
+
+<script src="lib/katex/katex.min.js"></script>
+<script src="lib/katex/mhchem.min.js"></script>
+<script src="expr.js"></script>
+<script src="graph.js"></script>
+<script src="render.js"></script>
+<script src="solver.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

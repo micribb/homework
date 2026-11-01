@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Viewfinder corners framing three ascending steps -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FFE8EEF6"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M32,44 V36 Q32,32 36,32 H44 M64,32 H72 Q76,32 76,36 V44 M76,64 V72 Q76,76 72,76 H64 M44,76 H36 Q32,76 32,72 V64" />
+    <path
+        android:fillColor="#FF5EE6B8"
+        android:pathData="M40,66 h8 v-8 h-8 z M50,66 h8 v-16 h-8 z M60,66 h8 v-24 h-8 z" />
+</vector>

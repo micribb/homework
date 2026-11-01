@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- USB Video Class (UVC) webcams: class 14 on an interface -->
+    <usb-device class="14" />
+    <!-- Composite webcams (most Logitech models) report Misc class 239 / subclass 2 (IAD) -->
+    <usb-device class="239" subclass="2" />
+</resources>
