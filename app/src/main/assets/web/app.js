@@ -498,7 +498,8 @@
     if (s === 429 || err.kind === 'rate_limit') return 'Too many requests for this key right now, even after waiting and retrying.' + (p === 'gemini' ? ' Free Gemini keys allow only a few requests per minute — wait a minute, or turn off Double-check in Settings.' : ' Wait a minute and tap Try again.');
     if (s === 400 && /credit|billing|balance/i.test(err.message)) return 'Your ' + name + ' account is out of credits. Add credit on their website, or switch to a free Gemini key.';
     if ([500, 502, 503, 504, 529].includes(s)) return name + '\'s servers are busy right now (retried automatically). Try again in a minute.';
-    if (err.kind === 'network' || err.kind === 'stall' || err.type === 'network' || err.type === 'stall' || err instanceof TypeError) return 'The internet connection kept dropping (retried automatically). Check the phone\'s Wi-Fi and tap Try again.';
+    if (err.kind === 'stall' || err.type === 'stall') return 'The AI took too long to answer (over 4 minutes with no reply). Tap Try again; for very hard problems choose Thinking effort → Standard, or turn off Double-check.';
+    if (err.kind === 'network' || err.type === 'network' || err instanceof TypeError) return 'Couldn\'t reach ' + name + ' (retried automatically). Check that the phone has internet, then tap Try again.';
     return err.message || String(err);
   }
 
@@ -508,6 +509,8 @@
     const n = document.createElement('div');
     n.className = 'notice error';
     n.textContent = explainError(err);
+    const tech = [err.status ? 'HTTP ' + err.status : '', err.kind || err.type || '', err.detail || err.message || ''].filter(Boolean).join(' · ');
+    if (tech) { const d = document.createElement('div'); d.className = 'err-detail'; d.textContent = 'Details: ' + tech.slice(0, 220); n.appendChild(d); }
     const retry = document.createElement('button');
     retry.className = 'btn btn-secondary btn-small';
     retry.textContent = 'Try again';

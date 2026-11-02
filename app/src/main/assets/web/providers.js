@@ -12,7 +12,7 @@
 (function (global) {
   'use strict';
 
-  const STALL_MS = 150000;
+  const STALL_MS = () => global.__STALL_MS || 240000; // 4 min of total silence = dead connection
 
   // ------------------------------------------------------------------ provider catalogue
   const CATALOG = {
@@ -84,7 +84,7 @@
   async function streamPost(url, headers, body, signal, onData, parseError) {
     const local = new AbortController();
     let stalled = false, timer = null;
-    const bump = () => { clearTimeout(timer); timer = setTimeout(() => { stalled = true; local.abort(); }, STALL_MS); };
+    const bump = () => { clearTimeout(timer); timer = setTimeout(() => { stalled = true; local.abort(); }, STALL_MS()); };
     const onOuter = () => local.abort();
     if (signal) { if (signal.aborted) throw new DOMException('Aborted', 'AbortError'); signal.addEventListener('abort', onOuter, { once: true }); }
     bump();
@@ -93,9 +93,9 @@
       try {
         res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: local.signal });
       } catch (e) {
-        if (stalled) throw new ProviderError(0, 'The connection stalled.', { kind: 'stall', retryable: true });
+        if (stalled) throw new ProviderError(0, 'No data from the AI for 4 minutes.', { kind: 'stall', retryable: true, detail: 'stream silent > ' + Math.round(STALL_MS() / 1000) + 's' });
         if (isAbort(e)) throw e;
-        throw new ProviderError(0, 'Network error: ' + (e.message || e), { kind: 'network', retryable: true });
+        throw new ProviderError(0, 'Network error: ' + (e.message || e), { kind: 'network', retryable: true, detail: String(e.message || e) });
       }
       if (!res.ok) {
         let j = null;
@@ -108,7 +108,7 @@
       for (;;) {
         let chunk;
         try { chunk = await reader.read(); } catch (e) {
-          if (stalled) throw new ProviderError(0, 'The connection stalled.', { kind: 'stall', retryable: true });
+          if (stalled) throw new ProviderError(0, 'No data from the AI for 4 minutes.', { kind: 'stall', retryable: true, detail: 'stream silent > ' + Math.round(STALL_MS() / 1000) + 's' });
           if (isAbort(e) || (signal && signal.aborted)) throw new DOMException('Aborted', 'AbortError');
           throw new ProviderError(0, 'Connection dropped.', { kind: 'network', retryable: true });
         }
@@ -134,7 +134,7 @@
         try { onData(JSON.parse(buf.trim().slice(5).trim()), ''); } catch (e) { /* ignore partial */ }
       }
     } catch (e) {
-      if (stalled && isAbort(e)) throw new ProviderError(0, 'The connection stalled.', { kind: 'stall', retryable: true });
+      if (stalled && isAbort(e)) throw new ProviderError(0, 'No data from the AI for 4 minutes.', { kind: 'stall', retryable: true, detail: 'stream silent > ' + Math.round(STALL_MS() / 1000) + 's' });
       throw e;
     } finally {
       clearTimeout(timer);
@@ -144,8 +144,11 @@
 
   async function withRetries(fn, signal, onEvent) {
     const delays = [2000, 5000, 12000, 25000];
+    let stalls = 0;
     for (let attempt = 0; ; attempt++) {
       try { return await fn(); } catch (e) {
+        if (e && e.kind === 'stall' && ++stalls > 1) throw e;           // don't wait out several silent streams
+        if (e && e.kind === 'network' && attempt >= 3) throw e;
         if (isAbort(e) || !e.retryable || attempt >= delays.length) throw e;
         const wait = e.retryAfter != null ? Math.min(65, e.retryAfter) * 1000 + 300 : delays[attempt];
         onEvent({ kind: 'retry', error: e, wait });
@@ -197,7 +200,7 @@
       parts: [].concat(t.image ? [{ inlineData: { mimeType: 'image/jpeg', data: t.image } }] : [], [{ text: t.text }]),
     }));
     const gen = { maxOutputTokens: o.maxTokens || 65536 };
-    if (feat.thinking) gen.thinkingConfig = { thinkingLevel: geminiThinking(o.effort) };
+    if (feat.thinking) gen.thinkingConfig = Object.assign({ thinkingLevel: geminiThinking(o.effort) }, feat.thoughts ? { includeThoughts: true } : {});
     if (feat.mediaRes && o.turns.some((t) => t.image)) gen.mediaResolution = 'MEDIA_RESOLUTION_HIGH';
     if (o.schema && feat.structured) { gen.responseMimeType = 'application/json'; gen.responseJsonSchema = o.schema; }
     const body = { contents, generationConfig: gen };
@@ -237,6 +240,7 @@
 
   const GEMINI_FEATURES = [
     { key: 'mediaRes', test: /media_?resolution/i },
+    { key: 'thoughts', test: /include_?thoughts/i },
     { key: 'thinking', test: /thinking/i },
     { key: 'tools', test: /code_?execution|tool/i },
     { key: 'structured', test: /response_?(json_)?schema|response_?mime|json|schema/i },
@@ -278,7 +282,7 @@
       max_output_tokens: o.maxTokens || 64000,
       store: false,
     };
-    if (feat.reasoning) body.reasoning = { effort: openaiEffort(o.effort, feat) };
+    if (feat.reasoning) body.reasoning = Object.assign({ effort: openaiEffort(o.effort, feat) }, feat.summary ? { summary: 'auto' } : {});
     if (o.schema && feat.structured) body.text = { format: { type: 'json_schema', name: 'stepcam_solution', schema: toTypeArrays(o.schema), strict: true } };
     if (o.tools && feat.tools) body.tools = [{ type: 'code_interpreter', container: { type: 'auto' } }];
 
@@ -324,6 +328,7 @@
 
   const OPENAI_FEATURES = [
     { key: 'xhigh', test: /xhigh/i },
+    { key: 'summary', test: /summary/i },
     { key: 'reasoning', test: /reasoning|effort/i },
     { key: 'tools', test: /code_interpreter|tool|container/i },
     { key: 'structured', test: /text\.format|json_schema|schema|strict/i },
@@ -381,7 +386,7 @@
     const isG = o.provider === 'gemini';
     const list = isG ? GEMINI_FEATURES : OPENAI_FEATURES;
     const memoKey = o.provider + ':' + o.model;
-    const feat = Object.assign(isG ? { mediaRes: true, thinking: true, tools: true, structured: true } : { xhigh: true, reasoning: true, tools: true, structured: true }, featureMemo[memoKey] || {});
+    const feat = Object.assign(isG ? { mediaRes: true, thoughts: true, thinking: true, tools: true, structured: true } : { xhigh: true, summary: true, reasoning: true, tools: true, structured: true }, featureMemo[memoKey] || {});
     const onEvent = o.onEvent || (() => {});
     for (let attempt = 0; attempt < 8; attempt++) {
       try {

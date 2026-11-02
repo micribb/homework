@@ -16,7 +16,7 @@
 
   const API_URL = 'https://api.anthropic.com/v1/messages';
   const CODE_TOOL = { type: 'code_execution_20260521', name: 'code_execution' };
-  const STALL_MS = 150000;      // abort an attempt if the stream is silent this long
+  const STALL_MS = 240000;      // abort an attempt if the stream is silent this long
   const MAX_CONTINUES = 6;      // pause_turn continuations per turn
 
   // ------------------------------------------------------------------ JSON schema
